@@ -4,13 +4,13 @@ mvn clean compile
 
 # Terminal N (mercado)
 cd mercado-coordenador  
-mvnd exec:java -Dexec.mainClass="br.edu.projeto.coordenador.MainMercado"
+mvn exec:java -Dexec.mainClass="br.edu.projeto.coordenador.MainMercado"
 
 # Terminal 3
 cd restaurante
-mvnd exec:java -Dexec.mainClass="br.edu.projeto.restaurante.server.Servidor"    
+mvn exec:java -Dexec.mainClass="br.edu.projeto.restaurante.server.Servidor"    
 
 # Terminal 4
 cd restaurante
-mvnd dependency:copy-dependencies    
+mvn dependency:copy-dependencies    
 java -cp "target/classes:target/dependency/*" br.edu.projeto.restaurante.client.ClienteRestaurante 
