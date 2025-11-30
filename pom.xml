@@ -14,7 +14,6 @@
         <module>common</module>
         <module>restaurante</module>
         <module>mercado-coordenador</module>
-        <module>mercado-filial</module>
     </modules>
 
     <properties>

@@ -1,13 +1,9 @@
 # Terminal 1 (zookeeper)
 mvn clean compile
 
-# Terminal 2 (coordenador)
+# Terminal N (mercado)
 cd mercado-coordenador  
-mvnd exec:java -Dexec.mainClass="br.edu.projeto.coordenador.MainCoordenador"  
-
-# Terminal N (filiais)
-cd mercado-filial/
-mvnd exec:java -Dexec.mainClass="br.edu.projeto.filial.MainFilial"   
+mvnd exec:java -Dexec.mainClass="br.edu.projeto.coordenador.MainMercado"
 
 # Terminal 3
 cd restaurante

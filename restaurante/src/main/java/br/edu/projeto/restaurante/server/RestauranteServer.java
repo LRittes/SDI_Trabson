@@ -15,7 +15,7 @@ public class RestauranteServer extends UnicastRemoteObject implements Restaurant
 
     public RestauranteServer() throws RemoteException {
         super();
-        Cardapio.carregarCardapio("src/main/java/br/edu/projeto/restaurante/server/menu_restaurante.csv");
+        Cardapio.carregarCardapio("../menu_restaurante.csv");
 }
 
     @Override

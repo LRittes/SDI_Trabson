@@ -7,24 +7,37 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @WebService(endpointInterface = "br.edu.projeto.interfaces.MercadoServidor")
 public class MercadoImpl implements MercadoServidor {
 
     private ZooKeeper zk;
-
-    // NOVO: Mapa para guardar quando cada pedido será entregue <ID_Pedido, Timestamp_Entrega>
+    // Mapa para guardar entregas: <ID_Pedido, Timestamp_Entrega>
     private static final Map<Integer, Long> entregas = new ConcurrentHashMap<>();
-    
+
+    // Classe auxiliar para guardar a melhor oferta encontrada
+    private static class MelhorOferta {
+        String produto;
+        String enderecoFilial; // IP:PORTA
+        double preco;
+
+        public MelhorOferta(String produto, String enderecoFilial, double preco) {
+            this.produto = produto;
+            this.enderecoFilial = enderecoFilial;
+            this.preco = preco;
+        }
+    }
+
     public MercadoImpl() {
         try {
-            // Conecta ao ZK apenas para ler a lista de filiais
-            this.zk = new ZooKeeper("localhost:2181", 3000, event -> {});
+            // Lógica para pegar o endereço correto (Docker ou Local)
+            String zkHost = System.getenv("ZOOKEEPER_HOST") != null ? System.getenv("ZOOKEEPER_HOST") : "localhost:2181";
+            
+            // Usa o endereço dinâmico
+            this.zk = new ZooKeeper(zkHost, 1500, event -> {});
+            
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -32,107 +45,118 @@ public class MercadoImpl implements MercadoServidor {
 
     @Override
     public int cadastrarPedido(String restaurante) {
-        System.out.println("Novo pedido iniciado para: " + restaurante);
-        return (int) (System.currentTimeMillis() % 10000); // ID simples
-    }
-
-    // Classe auxiliar interna para guardar o histórico da Saga
-    private static class ReservaEfetuada {
-        String produto;
-        String enderecoFilial; // IP:PORTA
-
-        public ReservaEfetuada(String produto, String enderecoFilial) {
-            this.produto = produto;
-            this.enderecoFilial = enderecoFilial;
-        }
+        System.out.println(">>> Novo pedido iniciado para: " + restaurante);
+        return (int) (System.currentTimeMillis() % 10000);
     }
 
     @Override
     public boolean comprarProdutos(int idPedido, String[] produtos) {
-        System.out.println("Coordenador: Iniciando Saga de Compra para o Pedido " + idPedido);
+        System.out.println("\n=== INICIANDO COTAÇÃO PARA PEDIDO " + idPedido + " ===");
         
-        List<ReservaEfetuada> logSaga = new ArrayList<>();
-        boolean transacaoSucesso = true;
+        // Lista para guardar onde vamos comprar cada produto (Plano de Compra)
+        List<MelhorOferta> carrinhoDeCompras = new ArrayList<>();
+        // Lista para log de rollback (caso algo dê errado na hora de pagar)
+        List<MelhorOferta> reservasEfetuadas = new ArrayList<>();
 
         try {
             List<String> filiaisNodes = zk.getChildren("/filiais", false);
-            if (filiaisNodes.isEmpty()) throw new Exception("Sem filiais disponíveis");
+            if (filiaisNodes.isEmpty()) throw new Exception("Sem mercados disponíveis na rede.");
 
-            // --- FASE 1: TENTAR RESERVAR TUDO ---
+            // --- FASE 1: COTAÇÃO (Descobrir o menor preço) ---
             for (String produto : produtos) {
                 String prodLimpo = produto.trim();
                 
-                // 1. Acha a melhor filial para esse produto (Lógica simplificada: pega a primeira que tiver estoque)
-                String filialEscolhida = encontrarFilialComEstoque(prodLimpo, filiaisNodes);
+                // Busca o menor preço em TODAS as filiais
+                MelhorOferta ofertaVencedora = encontrarMenorPreco(prodLimpo, filiaisNodes);
                 
-                if (filialEscolhida == null) {
-                    System.out.println("ERRO: Produto '" + prodLimpo + "' indisponível em toda a rede.");
-                    throw new Exception("Produto Indisponível: " + prodLimpo);
+                if (ofertaVencedora == null) {
+                    throw new Exception("Produto Indisponível na rede: " + prodLimpo);
                 }
 
-                // 2. Tenta Reservar
-                boolean reservou = enviarComando(filialEscolhida, "RESERVAR:" + prodLimpo);
+                System.out.println("   -> Vencedor para '" + prodLimpo + "': " + ofertaVencedora.enderecoFilial + " (R$ " + ofertaVencedora.preco + ")");
+                carrinhoDeCompras.add(ofertaVencedora);
+            }
+
+            System.out.println(">>> Cotação finalizada. Iniciando compras...");
+
+            // --- FASE 2: EXECUÇÃO (Reservar nos vencedores) ---
+            for (MelhorOferta item : carrinhoDeCompras) {
+                boolean reservou = enviarComando(item.enderecoFilial, "RESERVAR:" + item.produto);
                 
                 if (reservou) {
-                    // Sucesso: Adiciona no diário para caso precise cancelar depois
-                    logSaga.add(new ReservaEfetuada(prodLimpo, filialEscolhida));
+                    reservasEfetuadas.add(item);
                 } else {
-                    throw new Exception("Falha ao reservar " + prodLimpo);
+                    // Se falhar na hora H (ex: alguém comprou na frente), aborta tudo
+                    throw new Exception("Falha ao reservar " + item.produto + " no mercado " + item.enderecoFilial);
                 }
             }
 
-            System.out.println(">>> SAGA CONCLUÍDA: Todos os produtos reservados com sucesso!");
+            // --- FASE 3: SUCESSO ---
+            System.out.println(">>> SAGA CONCLUÍDA: Compra efetuada com sucesso!");
             
-            // LÓGICA DE TEMPO: Define que a entrega chegará entre 5 e 10 segundos
-            int segundosParaEntrega = 5 + new Random().nextInt(5);
-            long horaEntrega = System.currentTimeMillis() + (segundosParaEntrega * 1000);
-            
+            // Agenda a entrega
+            int segundosParaEntrega = 5 + new Random().nextInt(10);
+            long horaEntrega = System.currentTimeMillis() + (segundosParaEntrega * 1000L);
             entregas.put(idPedido, horaEntrega);
-            System.out.println(">>> Entrega agendada para daqui a " + segundosParaEntrega + " segundos.");
-
+            
             return true;
 
         } catch (Exception e) {
-            // --- FASE 2: ROLLBACK (COMPENSAÇÃO) ---
-            System.err.println(">>> FALHA NA SAGA: " + e.getMessage());
-            System.out.println(">>> Iniciando Rollback dos itens já reservados...");
-            transacaoSucesso = false;
+            // --- FASE 4: ROLLBACK (Se der erro, devolve o que já comprou) ---
+            System.err.println(">>> FALHA NA TRANSAÇÃO: " + e.getMessage());
+            System.out.println(">>> Iniciando Rollback...");
             
-            executarRollback(logSaga);
+            for (MelhorOferta item : reservasEfetuadas) {
+                System.out.println("   Compensando: Devolvendo " + item.produto + " para " + item.enderecoFilial);
+                enviarComando(item.enderecoFilial, "CANCELAR:" + item.produto);
+            }
             
             return false;
         }
     }
 
-    // Método auxiliar para buscar quem tem o produto (Simplificado do anterior)
-    private String encontrarFilialComEstoque(String produto, List<String> filiais) {
+    private MelhorOferta encontrarMenorPreco(String produto, List<String> filiais) {
+        MelhorOferta melhor = null;
+
         for (String node : filiais) {
             try {
+                // Pega IP:PORTA do Zookeeper
                 byte[] dados = zk.getData("/filiais/" + node, false, null);
                 String endereco = new String(dados);
                 
-                // Verifica se tem estoque (CONSULTA)
+                // Consulta: CONSULTAR:1
                 String resposta = enviarComandoSocket(endereco, "CONSULTAR:" + produto);
-                // Resposta esperada: OK:PRECO:QTD
+                
+                // Resposta esperada: OK:PRECO:QTD (Ex: OK:10.5:50)
                 if (resposta != null && resposta.startsWith("OK")) {
                     String[] parts = resposta.split(":");
+                    double preco = Double.parseDouble(parts[1]);
                     double qtd = Double.parseDouble(parts[2]);
-                    if (qtd > 0) return endereco; // Achamos uma filial com estoque!
+
+                    if (qtd > 0) {
+                        // Lógica do menor preço
+                        if (melhor == null || preco < melhor.preco) {
+                            melhor = new MelhorOferta(produto, endereco, preco);
+                        }
+                    }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+                // Se uma filial falhar, apenas ignora e tenta a próxima
+            }
         }
-        return null;
+        return melhor;
     }
 
-    // Método auxiliar para disparar o Rollback
-    private void executarRollback(List<ReservaEfetuada> logSaga) {
-        for (ReservaEfetuada reserva : logSaga) {
-            System.out.println("Compensando: Devolvendo " + reserva.produto + " para " + reserva.enderecoFilial);
-            enviarComando(reserva.enderecoFilial, "CANCELAR:" + reserva.produto);
-        }
+    @Override
+    public int tempoEntrega(int idPedido) {
+        if (!entregas.containsKey(idPedido)) return -1;
+        long horaEntrega = entregas.get(idPedido);
+        long agora = System.currentTimeMillis();
+        int segundosRestantes = (int) ((horaEntrega - agora) / 1000);
+        return Math.max(0, segundosRestantes);
     }
 
-    // Método genérico para falar com o Socket
+    // --- Métodos de Socket ---
     private boolean enviarComando(String endereco, String comando) {
         String resposta = enviarComandoSocket(endereco, comando);
         return resposta != null && resposta.startsWith("OK");
@@ -151,23 +175,5 @@ public class MercadoImpl implements MercadoServidor {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    @Override
-    public int tempoEntrega(int idPedido) {
-        if (!entregas.containsKey(idPedido)) {
-            return -1; // Pedido não encontrado ou ainda não processado
-        }
-
-        long horaEntrega = entregas.get(idPedido);
-        long agora = System.currentTimeMillis();
-        
-        int segundosRestantes = (int) ((horaEntrega - agora) / 1000);
-
-        if (segundosRestantes <= 0) {
-            return 0; // Entregue!
-        }
-        
-        return segundosRestantes;
     }
 }

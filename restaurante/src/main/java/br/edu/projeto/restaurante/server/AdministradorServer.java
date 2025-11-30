@@ -39,33 +39,41 @@ public class AdministradorServer extends UnicastRemoteObject implements Administ
         }).start();
     }
 
-     @Override
+    @Override
     public void fazerComprasNoMercado(String nomeRestaurante, String[] produtos, ClienteCallback cliente) throws RemoteException {
         System.out.println("ADMIN: Recebida solicitação de compras. Conectando ao Mercado...");
         try {
+            // Nota: Lembre-se que ajustamos a porta para 8081 e o QName anteriormente
             URL wsdlUrl = new URL("http://localhost:8080/mercado?wsdl");
-            // O namespace deve ser EXATAMENTE o que apareceu no erro
             QName serviceQName = new QName("http://coordenador.projeto.edu.br/", "MercadoImplService");
             Service serviceFactory = Service.create(wsdlUrl, serviceQName);
             MercadoServidor mercado = serviceFactory.getPort(MercadoServidor.class);
 
+            // 1. Cadastra o pedido
             int pedidoId = mercado.cadastrarPedido(nomeRestaurante);
-            mercado.comprarProdutos(pedidoId, produtos);
             
-            System.out.println("ADMIN: Compra para o pedido #" + pedidoId + " realizada. Iniciando monitoramento da entrega.");
-
-            new Thread(() -> {
-                monitorarEntregaMercado(mercado, pedidoId, cliente);
-            }).start();
+            // 2. Tenta realizar a compra
+            // O Coordenador retorna TRUE se reservou tudo, ou FALSE se falhou (não achou estoque)
+            boolean compraRealizada = mercado.comprarProdutos(pedidoId, produtos);
+            
+            if (compraRealizada) {
+                System.out.println("ADMIN: Compra #" + pedidoId + " realizada com SUCESSO. Iniciando monitoramento.");
+                new Thread(() -> {
+                    monitorarEntregaMercado(mercado, pedidoId, cliente);
+                }).start();
+            } else {
+                // SE A COMPRA FALHOU (Retornou false)
+                System.out.println("ADMIN: Compra #" + pedidoId + " RECUSADA pelo mercado (Sem estoque).");
+                String listaProdutos = String.join(", ", produtos);
+                cliente.notificarEntregaMercado("FALHA NA COMPRA: Os itens solicitados (" + listaProdutos + ") não estão disponíveis em nenhuma filial no momento.");
+            }
 
         } catch (Exception e) {
             System.err.println("ADMIN: Erro ao conectar com o mercado!");
             e.printStackTrace();
             try {
-                cliente.notificarEntregaMercado("ERRO: Falha ao realizar o pedido no mercado.");
-            } catch (RemoteException re) {
-                System.err.println("ADMIN: Falha ao notificar cliente sobre o erro do mercado.");
-            }
+                cliente.notificarEntregaMercado("ERRO TÉCNICO: Falha ao comunicar com o Coordenador do Mercado.");
+            } catch (RemoteException re) { /* Ignora */ }
         }
     }
 
@@ -73,23 +81,27 @@ public class AdministradorServer extends UnicastRemoteObject implements Administ
         try {
             while (true) {
                 int tempoRestante = mercado.tempoEntrega(pedidoId);
+                
+                // Tratamento caso o pedido suma ou dê erro durante o monitoramento (-1)
+                if (tempoRestante == -1) {
+                    System.out.println("MONITOR: Recebido -1 (Pedido não encontrado). Encerrando monitoramento.");
+                    cliente.notificarEntregaMercado("ERRO: O pedido #" + pedidoId + " foi cancelado ou não encontrado no mercado.");
+                    break;
+                }
+
                 System.out.println("MONITOR (Mercado): Verificando pedido #" + pedidoId + ". Tempo restante: " + tempoRestante + "s.");
                 
                 if (tempoRestante <= 0) {
-                    String mensagem = "A entrega do seu pedido de mercado #" + pedidoId + " chegou!";
+                    String mensagem = "SUCESSO: A entrega do seu pedido de mercado #" + pedidoId + " chegou no restaurante!";
                     cliente.notificarEntregaMercado(mensagem);
                     break;
                 }
                 
-                Thread.sleep(5000); 
+                Thread.sleep(2000); // Verifica a cada 2 segundos (Polling)
             }
         } catch (Exception e) {
-            System.err.println("MONITOR (Mercado): Erro na thread de monitoramento do pedido #" + pedidoId);
+            System.err.println("MONITOR: Erro na thread de monitoramento.");
             e.printStackTrace();
-            try {
-                cliente.notificarEntregaMercado("ERRO: Ocorreu uma falha ao monitorar a entrega do pedido #" + pedidoId);
-            } catch (RemoteException re) {
-            }
         }
     }
 }

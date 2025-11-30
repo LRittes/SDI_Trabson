@@ -33,7 +33,10 @@ public class ClienteRestaurante extends UnicastRemoteObject implements ClienteCa
 
     public static void main(String[] args) {
         try {
-            Registry registry = LocateRegistry.getRegistry("localhost", 3099);
+            String hostServidor = System.getenv("SERVER_HOST") != null ? System.getenv("SERVER_HOST") : "localhost";
+            System.out.println(">>> Conectando ao servidor RMI em: " + hostServidor);
+            Registry registry = LocateRegistry.getRegistry(hostServidor, 3099);
+            
             Restaurante restaurante = (Restaurante) registry.lookup("RestauranteService");
             Administrador administrador = (Administrador) registry.lookup("AdministradorService");
             
