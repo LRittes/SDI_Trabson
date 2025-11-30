@@ -1,0 +1,12 @@
+FROM eclipse-temurin:11-jre-alpine
+WORKDIR /app
+
+# Copia o JAR
+COPY restaurante/target/restaurante-1.0-SNAPSHOT-jar-with-dependencies.jar client.jar
+
+# Copia o CSV do cardápio para a raiz do container (O Servidor precisa disso)
+COPY menu_restaurante.csv /src/main/java/br/edu/projeto/restaurante/server/menu_restaurante.csv
+
+# Define o comando base, MAS SEM A CLASSE ESPECÍFICA
+# O Docker vai esperar que a gente diga qual classe rodar no docker-compose
+ENTRYPOINT ["java", "-cp", "client.jar"]
