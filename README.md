@@ -1,4 +1,5 @@
 # Terminal 1 (zookeeper)
+docker container run --name zookeeper -p 2181:2181 -d zookeeper 
 mvn clean compile
 
 # Terminal N (mercado)
