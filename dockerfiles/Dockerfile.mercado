@@ -1,0 +1,13 @@
+FROM eclipse-temurin:11-jre-alpine
+
+WORKDIR /app
+
+# Copia o "Fat Jar" gerado pelo Maven (Verifique se o nome bate com o gerado na pasta target)
+COPY mercado-coordenador/target/mercado-coordenador-1.0-SNAPSHOT-jar-with-dependencies.jar app.jar
+
+# Copia o CSV para a raiz do sistema de arquivos do container ( / )
+# Isso é necessário porque seu código Java procura em "../menu_restaurante.csv"
+COPY menu_restaurante.csv /menu_restaurante.csv
+
+# Define o comando de inicialização
+ENTRYPOINT ["java", "-jar", "app.jar"]

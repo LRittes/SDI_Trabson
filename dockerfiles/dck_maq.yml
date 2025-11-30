@@ -1,0 +1,19 @@
+services:
+  mercado:
+    build:
+      context: .
+      dockerfile: Dockerfile.mercado
+    restart: always
+    
+    # --- MODO DE REDE: HOST (Recomendado para Linux) ---
+    # Isso faz o container usar o IP da máquina real diretamente.
+    # Evita problemas de NAT e mapeamento de portas para os Sockets dinâmicos.
+    network_mode: host
+    
+    environment:
+      # Lista dos 3 Zookeepers (IPs das máquinas de infraestrutura)
+      - ZOOKEEPER_HOST=<IP_DO_SERVIDOR_1>:2181,<IP_DO_SERVIDOR_2>:2181,<IP_DO_SERVIDOR_3>:2181
+      
+      # O IP DESTA máquina específica (Vital para o Socket funcionar)
+      # Altere isso para o IP real da máquina onde esse docker-compose está rodando
+      - MY_HOST_IP=<IP_DA_MAQUINA>

@@ -1,0 +1,9 @@
+services:
+  zookeeper:
+    image: zookeeper
+    restart: always
+    network_mode: host # DICA DE OURO: Usa a rede da máquina real direto
+    environment:
+      ZOO_MY_ID: 1  # <--- SÓ ISSO MUDA: Eu sou o número 1
+      ZOO_SERVERS: server.1=<IP_DO_SERVIDOR_1>:2888:3888;2181 server.2=<IP_DO_SERVIDOR_2>:2888:3888;2181 server.3=<IP_DO_SERVIDOR_3>:2888:3888;2181
+      ZOO_TICK_TIME: 500
