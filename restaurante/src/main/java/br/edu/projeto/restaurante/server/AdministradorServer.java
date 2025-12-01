@@ -3,6 +3,9 @@ package br.edu.projeto.restaurante.server;
 import br.edu.projeto.interfaces.*; // Importa Administrador, Restaurante, etc.
 
 import javax.xml.ws.Service;
+
+import org.apache.zookeeper.ZooKeeper;
+
 import javax.xml.namespace.QName;
 
 import java.net.URL;
@@ -39,12 +42,40 @@ public class AdministradorServer extends UnicastRemoteObject implements Administ
         }).start();
     }
 
+    // Método auxiliar para descobrir a URL
+    private String descobrirUrlDoLider() throws Exception {
+        String zkHost = System.getenv("ZOOKEEPER_HOST"); 
+        if (zkHost == null) zkHost = "localhost:2181";
+
+        // Conecta no ZK
+        ZooKeeper zkClient = new ZooKeeper(zkHost, 3000, event -> {});
+        
+        // Espera conectar... (Simplificado)
+        while(!zkClient.getState().isConnected()) Thread.sleep(100);
+
+        // Lê os dados do nó /servico-soap
+        if (zkClient.exists("/servico-soap", false) != null) {
+            byte[] dados = zkClient.getData("/servico-soap", false, null);
+            String url = new String(dados);
+            zkClient.close();
+            return url;
+        }
+        
+        zkClient.close();
+        throw new Exception("Nenhum líder registrou a URL do SOAP ainda.");
+    }
+
     @Override
     public void fazerComprasNoMercado(String nomeRestaurante, String[] produtos, ClienteCallback cliente) throws RemoteException {
-        System.out.println("ADMIN: Recebida solicitação de compras. Conectando ao Mercado...");
         try {
-            // Nota: Lembre-se que ajustamos a porta para 8081 e o QName anteriormente
-            URL wsdlUrl = new URL("http://localhost:8080/mercado?wsdl");
+            // 1. Pergunta ao Zookeeper onde está o serviço
+            System.out.println("ADMIN: Consultando Zookeeper para achar o líder...");
+            String urlDinamica = descobrirUrlDoLider();
+            System.out.println("ADMIN: Líder encontrado em: " + urlDinamica);
+
+            // 2. Conecta
+            URL wsdlUrl = new URL(urlDinamica);
+            // ... continua o código normal ...
             QName serviceQName = new QName("http://coordenador.projeto.edu.br/", "MercadoImplService");
             Service serviceFactory = Service.create(wsdlUrl, serviceQName);
             MercadoServidor mercado = serviceFactory.getPort(MercadoServidor.class);

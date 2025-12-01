@@ -91,17 +91,38 @@ public class MainMercado implements Watcher {
     private void assumirLideranca() {
         System.out.println("\n>>> PAPEL: LÍDER (COORDENADOR + FILIAL) <<<");
         
-        // MUDANÇA AQUI: Não paramos mais a filialService!
-        // O Líder continua servindo estoque via Socket para si mesmo e para futuros líderes.
+        // 1. URL DE BIND (Para o Java abrir a porta)
+        // Usamos 0.0.0.0 para garantir que o Docker consiga rotear o tráfego para cá
+        String urlBind = "http://0.0.0.0:8080/mercado";
 
-        // Inicia o WebService (Porta 8080) se ainda não estiver rodando
+        // 2. URL PÚBLICA (Para o Cliente encontrar)
+        // Usamos o nome do host/IP configurado para o Zookeeper
+        String meuHost = System.getenv("MY_HOST_IP");
+        if (meuHost == null || meuHost.isEmpty()) {
+            meuHost = "localhost"; 
+        }
+        String urlPublica = "http://" + meuHost + ":8080/mercado?wsdl";
+
+        // Se o SOAP já não estiver rodando, inicio.
         if (endpointSOAP == null || !endpointSOAP.isPublished()) {
             try {
-                System.out.println(">>> Subindo WebService na porta 8080...");
-                endpointSOAP = Endpoint.publish(URL_WEBSERVICE, new MercadoImpl());
-                System.out.println(">>> WebService ONLINE! (Acumulando função de Estoque)");
+                System.out.println(">>> Subindo WebService (Bind) em: " + urlBind);
+                
+                // MUDANÇA CRÍTICA: Publica no 0.0.0.0
+                endpointSOAP = Endpoint.publish(urlBind, new MercadoImpl());
+                
+                System.out.println(">>> WebService ONLINE!");
+                
+                // --- Publica a URL PÚBLICA (mercado1, mercado2...) no Zookeeper ---
+                if (zk.exists("/servico-soap", false) != null) {
+                    zk.delete("/servico-soap", -1);
+                }
+                
+                zk.create("/servico-soap", urlPublica.getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+                System.out.println(">>> URL registrada no ZK para clientes: " + urlPublica);
+                
             } catch (Exception e) {
-                System.err.println("ERRO CRÍTICO: Porta 8080 ocupada ou erro de rede: " + e.getMessage());
+                System.err.println("ERRO CRÍTICO: " + e.getMessage());
                 System.exit(1);
             }
         }
