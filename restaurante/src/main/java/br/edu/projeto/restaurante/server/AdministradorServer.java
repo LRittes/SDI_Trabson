@@ -48,7 +48,7 @@ public class AdministradorServer extends UnicastRemoteObject implements Administ
         if (zkHost == null) zkHost = "localhost:2181";
 
         // Conecta no ZK
-        ZooKeeper zkClient = new ZooKeeper(zkHost, 3000, event -> {});
+        ZooKeeper zkClient = new ZooKeeper(zkHost, 10000, event -> {});
         
         // Espera conectar... (Simplificado)
         while(!zkClient.getState().isConnected()) Thread.sleep(100);

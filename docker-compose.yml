@@ -1,111 +1,47 @@
-version: '3.8'
-
 services:
-  # --- CLUSTER ZOOKEEPER (3 NÓS) ---
   zoo1:
     image: zookeeper
+    restart: always
     hostname: zoo1
+    container_name: zoo1
     ports:
-      - "2181:2181"
+      - "2181:2181" # Porta externa 2181
     environment:
       ZOO_MY_ID: 1
+      # Lista de todos os servidores do cluster (host:porta_dados:porta_eleicao;porta_cliente)
       ZOO_SERVERS: server.1=zoo1:2888:3888;2181 server.2=zoo2:2888:3888;2181 server.3=zoo3:2888:3888;2181
       ZOO_TICK_TIME: 2000
     networks:
-      - rede-local
+      - rede-cluster
 
   zoo2:
     image: zookeeper
+    restart: always
     hostname: zoo2
+    container_name: zoo2
     ports:
-      - "2182:2181"
+      - "2182:2181" # Porta externa 2182 (para não dar conflito na sua máquina)
     environment:
       ZOO_MY_ID: 2
       ZOO_SERVERS: server.1=zoo1:2888:3888;2181 server.2=zoo2:2888:3888;2181 server.3=zoo3:2888:3888;2181
       ZOO_TICK_TIME: 2000
     networks:
-      - rede-local
+      - rede-cluster
 
   zoo3:
     image: zookeeper
+    restart: always
     hostname: zoo3
+    container_name: zoo3
     ports:
-      - "2183:2181"
+      - "2183:2181" # Porta externa 2183
     environment:
       ZOO_MY_ID: 3
       ZOO_SERVERS: server.1=zoo1:2888:3888;2181 server.2=zoo2:2888:3888;2181 server.3=zoo3:2888:3888;2181
       ZOO_TICK_TIME: 2000
     networks:
-      - rede-local
-
-  # --- MERCADOS (3 NÓS) ---
-  mercado1:
-    build:
-      context: .
-      dockerfile: Dockerfile.mercado
-    environment:
-      # Aponta para o Cluster Zookeeper
-      - ZOOKEEPER_HOST=zoo1:2181,zoo2:2181,zoo3:2181
-      # Nome deste container na rede (O Coordenador usará isso para abrir Socket)
-      - MY_HOST_IP=mercado1
-    depends_on:
-      - zoo1
-    networks:
-      - rede-local
-
-  mercado2:
-    build:
-      context: .
-      dockerfile: Dockerfile.mercado
-    environment:
-      - ZOOKEEPER_HOST=zoo1:2181,zoo2:2181,zoo3:2181
-      - MY_HOST_IP=mercado2
-    depends_on:
-      - zoo1
-    networks:
-      - rede-local
-
-  mercado3:
-    build:
-      context: .
-      dockerfile: Dockerfile.mercado
-    environment:
-      - ZOOKEEPER_HOST=zoo1:2181,zoo2:2181,zoo3:2181
-      - MY_HOST_IP=mercado3
-    depends_on:
-      - zoo1
-    networks:
-      - rede-local
-
-  # --- RESTAURANTE (SERVIDOR RMI) ---
-  restaurante-server:
-    build: 
-      context: .
-      dockerfile: Dockerfile.client
-    command: ["br.edu.projeto.restaurante.server.Servidor"]
-    environment:
-      - RMI_HOSTNAME=restaurante-server
-      - ZOOKEEPER_HOST=zoo1:2181,zoo2:2181,zoo3:2181
-    networks:
-      - rede-local
-
-  # --- RESTAURANTE (CLIENTE INTERATIVO) ---
-  restaurante-cliente:
-    build: 
-      context: .
-      dockerfile: Dockerfile.client
-    command: ["br.edu.projeto.restaurante.client.ClienteRestaurante"]
-    environment:
-      - SERVER_HOST=restaurante-server
-      - ZOOKEEPER_HOST=zoo1:2181,zoo2:2181,zoo3:2181
-    stdin_open: true # Permite interatividade
-    tty: true
-    depends_on:
-      - restaurante-server
-      - mercado1
-    networks:
-      - rede-local
+      - rede-cluster
 
 networks:
-  rede-local:
+  rede-cluster:
     driver: bridge

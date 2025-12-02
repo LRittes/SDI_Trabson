@@ -36,7 +36,7 @@ public class MercadoImpl implements MercadoServidor {
             String zkHost = System.getenv("ZOOKEEPER_HOST") != null ? System.getenv("ZOOKEEPER_HOST") : "localhost:2181";
             
             // Usa o endereço dinâmico
-            this.zk = new ZooKeeper(zkHost, 1500, event -> {});
+            this.zk = new ZooKeeper(zkHost, 10000, event -> {});
             
         } catch (Exception e) {
             e.printStackTrace();

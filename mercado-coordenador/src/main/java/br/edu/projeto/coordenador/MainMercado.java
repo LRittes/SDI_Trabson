@@ -28,7 +28,7 @@ public class MainMercado implements Watcher {
             boolean conectado = false;
             while (!conectado) {
                 try {
-                    this.zk = new ZooKeeper(ZOOKEEPER_ADDRESS, 1000, this);
+                    this.zk = new ZooKeeper(ZOOKEEPER_ADDRESS, 10000, this);
                     // Bloqueia até conectar de verdade (verifica estado)
                     long inicio = System.currentTimeMillis();
                     while (!zk.getState().isConnected() && (System.currentTimeMillis() - inicio) < 5000) {
@@ -147,8 +147,32 @@ public class MainMercado implements Watcher {
 
     @Override
     public void process(WatchedEvent event) {
+        // Lógica existente de nó deletado
         if (event.getType() == Event.EventType.NodeDeleted) {
             try { verificarLideranca(); } catch (Exception e) { e.printStackTrace(); }
+        }
+        
+        // --- NOVA LÓGICA: SESSÃO EXPIRADA ---
+        // Se a sessão morreu, o objeto 'zk' atual é inútil. Precisamos reiniciar tudo.
+        if (event.getState() == Event.KeeperState.Expired) {
+            System.err.println("!!! SESSÃO ZOOKEEPER EXPIRADA !!!");
+            System.out.println(">>> Reiniciando conexão e eleição...");
+            
+            try {
+                // Fecha o antigo se der
+                try { zk.close(); } catch (Exception e) {}
+                
+                // Se eu era líder, derrubo o serviço para evitar "Split Brain"
+                if (endpointSOAP != null && endpointSOAP.isPublished()) {
+                    endpointSOAP.stop();
+                }
+                
+                // Reinicia o processo do zero (reconecta, registra, vota)
+                iniciar(); 
+                
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
     }
 }
